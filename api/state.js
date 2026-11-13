@@ -11,7 +11,8 @@ async function identity(req){
  const [exp,id,version,nonce,sig]=raw.split('.');
  if(!sig||!Number.isFinite(Number(exp))||Number(exp)<Date.now()||!equal(sig,sign([exp,id,version,nonce].join('.'))))return null;
  const user=users.find(u=>u.id===id);if(!user)return null;
- const current=user.role==='admin'?sign(process.env.APP_PASSWORD):(await sql`SELECT version FROM inventory_users WHERE id=${id}`)[0]?.version;
+ const saved=(await sql`SELECT version FROM inventory_users WHERE id=${id}`)[0];
+ const current=saved?.version||(user.role==='admin'?sign(process.env.APP_PASSWORD):null);
  return current===version?user:null;
 }
 export default async function handler(req,res){
@@ -31,19 +32,25 @@ export default async function handler(req,res){
    await sql`DELETE FROM inventory_login_limits WHERE expires < ${Date.now()}`;
    if(limit.attempts>10)return res.status(429).json({error:'Trop de tentatives. Réessayez dans 15 minutes.'});
    if(body.action==='register'){
-    const target=users.find(u=>u.id===body.user&&u.role==='staff');
+    const target=users.find(u=>u.id===body.user);
     if(!target||typeof body.password!=='string'||body.password.length<12||body.password.length>128)return res.status(400).json({error:'Choisissez votre nom et un mot de passe de 12 à 128 caractères.'});
+    if(target.role==='admin'&&!equal(hash(String(body.directionCode||'').slice(0,256),'direction-proof'),hash(process.env.APP_PASSWORD,'direction-proof')))return res.status(403).json({error:'Le code direction actuel est nécessaire pour créer le compte Jean-Noel.'});
     if((await sql`SELECT id FROM inventory_users WHERE id=${target.id}`).length)return res.status(409).json({error:'Ce compte existe déjà. Connectez-vous ou contactez Jean-Noel.'});
     const salt=randomBytes(16).toString('hex'),digest=hash(body.password,salt),version=randomBytes(16).toString('hex');
+    if(target.role==='admin'){
+     const created=await sql`INSERT INTO inventory_users(id,salt,hash,version) VALUES(${target.id},${salt},${digest},${version}) ON CONFLICT DO NOTHING RETURNING id`;
+     if(!created.length)return res.status(409).json({error:'Le compte Jean-Noel existe déjà. Connectez-vous.'});
+     return res.status(201).json({ok:true,message:'Compte Jean-Noel activé. Connectez-vous avec votre nouveau mot de passe.'});
+    }
     const added=await sql`INSERT INTO inventory_registrations(id,salt,hash,version) VALUES(${target.id},${salt},${digest},${version}) ON CONFLICT DO NOTHING RETURNING id`;
     if(!added.length)return res.status(409).json({error:'Une demande existe déjà pour ce nom. Contactez Jean-Noel pour la valider ou la refuser.'});
     return res.status(201).json({ok:true,message:'Compte demandé. Jean-Noel doit valider votre identité avant votre première connexion.'});
    }
    const user=users.find(u=>u.id===body.user),input=String(body.password||'').slice(0,256);
-   const stored=user?.role==='staff'?(await sql`SELECT salt,hash,version FROM inventory_users WHERE id=${user.id}`)[0]:null;
-   const salt=stored?.salt||'inventory-admin-v2',expected=user?.role==='admin'?hash(process.env.APP_PASSWORD,salt):stored?.hash||'0'.repeat(64);
+   const stored=user?(await sql`SELECT salt,hash,version FROM inventory_users WHERE id=${user.id}`)[0]:null;
+   const salt=stored?.salt||'inventory-admin-v2',expected=stored?.hash||(user?.role==='admin'?hash(process.env.APP_PASSWORD,salt):'0'.repeat(64));
    if(!equal(hash(input,salt),expected))return res.status(401).json({error:'Identité ou code personnel incorrect. Contactez Jean-Noel si votre accès n’est pas encore activé.'});
-   const version=user.role==='admin'?sign(process.env.APP_PASSWORD):stored.version;
+   const version=stored?.version||sign(process.env.APP_PASSWORD);
    const token=[Date.now()+12*3600000,user.id,version,randomBytes(16).toString('hex')].join('.');
    res.setHeader('Set-Cookie',`inventory=${token}.${sign(token)}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=43200`);return res.json({ok:true});
   }
