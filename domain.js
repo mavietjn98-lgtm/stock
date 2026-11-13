@@ -26,10 +26,10 @@ export function apply(state,cmd){
   s.orders.push({id,site:a.site,product:p.id,quantity,price,date:date(a.date),channel:text(a.channel,60),actor,note:String(a.note||'').slice(0,1000),at:now});
  }else if(cmd.type==='receipt'){
   const o=s.orders.find(x=>x.id===a.order)||fail('Commande introuvable.');a.site=o.site;site();
-  if(!sites[o.site].people.includes(actor))fail('Réceptionnaire non autorisé pour cet établissement.');
+  if(actor!=='Jean-Noel'&&!sites[o.site].people.includes(actor))fail('Réceptionnaire non autorisé pour cet établissement.');
   const quantity=num(a.quantity,0.001),remaining=o.quantity-received(s,o.id);
   if(quantity>remaining+1e-8)fail('La quantité dépasse le reste à recevoir.');
-  const day=date(a.date);s.receipts.push({id,order:o.id,site:o.site,product:o.product,quantity,date:day,actor,reference:text(a.reference),at:now});move(o.product,quantity,'Réception',o.id,day);
+  const day=date(a.date);s.receipts.push({id,order:o.id,site:o.site,product:o.product,quantity,date:day,actor,reference:text(a.reference),note:String(a.note||'').slice(0,4000),at:now});move(o.product,quantity,'Réception',o.id,day);
  }else if(cmd.type==='invoice'){
   site();const p=product();const order=a.order?s.orders.find(x=>x.id===a.order):null;
   if(a.order&&(!order||order.site!==a.site||order.product!==p.id))fail('Commande incompatible.');

@@ -7,3 +7,18 @@ test('Réceptions partielles, protection contre doublons et dépassement',()=>{l
 test('Prix convenu immuable et facture sans entrée de stock',()=>{let {s,product,order}=fixture();s=apply(s,command('invoice',{site:'kookasia',product,order,quantity:3,price:1250,date:'2026-11-14',reference:'F1',actor:'Tara'}));assert.equal(s.invoices[0].expected,1200);assert.equal(discrepancy(1200,1250),50);assert.equal(stock(s,'kookasia',product),0);assert.throws(()=>apply(s,command('invoice',{site:'kookasia',product,order,quantity:3,price:1250,date:'2026-11-14',reference:'F1',actor:'Tara'})),/déjà/)});
 test('Prix inconnu distinct de zéro et quantité invalide rejetée',()=>{assert.equal(discrepancy(null,5),null);assert.equal(discrepancy(0,5),5);const {s,product}=fixture();assert.throws(()=>apply(s,command('order',{product,site:'mojo',quantity:-1,price:null,date:'2026-11-14',channel:'Téléphone'})),/Nombre/)});
 test('Comptage et sortie ne touchent que le bon établissement',()=>{let {s,product}=fixture();s=apply(s,command('count',{site:'mojo',product,quantity:12,date:'2026-11-14',note:'Comptage initial',actor:'Andrea'}));s=apply(s,command('out',{site:'mojo',product,quantity:2,date:'2026-11-14',note:'Cuisine',actor:'Andrea'}));assert.equal(stock(s,'mojo',product),10);assert.equal(stock(s,'kookasia',product),0);assert.throws(()=>apply(s,command('out',{site:'mojo',product,quantity:11,date:'2026-11-14',note:'Cuisine'})),/supérieure/)});
+import {users,scope,authorize} from './access.js';
+test('Accès cloisonné et identité imposée côté serveur',()=>{
+ const {s,order,product}=fixture(),tara=users.find(u=>u.id==='tara'),andrea=users.find(u=>u.id==='andrea');
+ const view=scope(s,andrea);assert.equal(view.orders.length,0);assert.equal(view.events.length,0);
+ assert.equal(scope(s,tara).orders.length,1);
+ assert.throws(()=>authorize(s,command('receipt',{order,actor:'Tara'}),andrea),/refusé/);
+ assert.throws(()=>authorize(s,command('order',{site:'mojo',product}),tara),/refusé/);
+ assert.throws(()=>authorize(s,command('product',{}),tara),/direction/);
+ assert.equal(authorize(s,command('receipt',{order,actor:'Jean-Noel'}),tara).payload.actor,'Tara');
+ assert.equal(scope(s,users[0]).orders.length,1);
+});
+test('Direction peut réceptionner et conserver la note dictée',()=>{
+ const {s,order}=fixture();const next=apply(s,authorize(s,command('receipt',{order,quantity:1,date:'2026-11-14',reference:'TEST',note:'Carton abîmé'}),users[0]));
+ assert.equal(next.receipts[0].actor,'Jean-Noel');assert.equal(next.receipts[0].note,'Carton abîmé');
+});
