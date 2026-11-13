@@ -23,12 +23,22 @@ export default async function handler(req,res){
  try{
   sql ||= postgres(process.env.DATABASE_URL,{ssl:'require',max:1,prepare:false});
   await sql`CREATE TABLE IF NOT EXISTS inventory_users (id text PRIMARY KEY,salt text NOT NULL,hash text NOT NULL,version text NOT NULL)`;
-  if(req.method==='POST'&&body?.action==='login'){
+  await sql`CREATE TABLE IF NOT EXISTS inventory_registrations (id text PRIMARY KEY,salt text NOT NULL,hash text NOT NULL,version text NOT NULL,created timestamptz NOT NULL DEFAULT now())`;
+  if(req.method==='POST'&&['login','register'].includes(body?.action)){
    await sql`CREATE TABLE IF NOT EXISTS inventory_login_limits (key text PRIMARY KEY,attempts integer NOT NULL,expires bigint NOT NULL)`;
    const key=sign(String(req.headers['x-forwarded-for']||'unknown')+':'+Math.floor(Date.now()/900000));
    const [limit]=await sql`INSERT INTO inventory_login_limits(key,attempts,expires) VALUES(${key},1,${Date.now()+900000}) ON CONFLICT(key) DO UPDATE SET attempts=inventory_login_limits.attempts+1 RETURNING attempts`;
    await sql`DELETE FROM inventory_login_limits WHERE expires < ${Date.now()}`;
    if(limit.attempts>10)return res.status(429).json({error:'Trop de tentatives. Réessayez dans 15 minutes.'});
+   if(body.action==='register'){
+    const target=users.find(u=>u.id===body.user&&u.role==='staff');
+    if(!target||typeof body.password!=='string'||body.password.length<12||body.password.length>128)return res.status(400).json({error:'Choisissez votre nom et un mot de passe de 12 à 128 caractères.'});
+    if((await sql`SELECT id FROM inventory_users WHERE id=${target.id}`).length)return res.status(409).json({error:'Ce compte existe déjà. Connectez-vous ou contactez Jean-Noel.'});
+    const salt=randomBytes(16).toString('hex'),digest=hash(body.password,salt),version=randomBytes(16).toString('hex');
+    const added=await sql`INSERT INTO inventory_registrations(id,salt,hash,version) VALUES(${target.id},${salt},${digest},${version}) ON CONFLICT DO NOTHING RETURNING id`;
+    if(!added.length)return res.status(409).json({error:'Une demande existe déjà pour ce nom. Contactez Jean-Noel pour la valider ou la refuser.'});
+    return res.status(201).json({ok:true,message:'Compte demandé. Jean-Noel doit valider votre identité avant votre première connexion.'});
+   }
    const user=users.find(u=>u.id===body.user),input=String(body.password||'').slice(0,256);
    const stored=user?.role==='staff'?(await sql`SELECT salt,hash,version FROM inventory_users WHERE id=${user.id}`)[0]:null;
    const salt=stored?.salt||'inventory-admin-v2',expected=user?.role==='admin'?hash(process.env.APP_PASSWORD,salt):stored?.hash||'0'.repeat(64);
@@ -41,15 +51,19 @@ export default async function handler(req,res){
   if(req.method==='GET'&&req.query?.status==='1')return res.json({configured:true,authenticated:!!user,user});
   if(!user)return res.status(401).json({error:'Connexion requise.'});
   if(req.method==='POST'&&body?.action==='logout'){res.setHeader('Set-Cookie','inventory=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0');return res.json({ok:true})}
-  if(body?.action==='set-access'){
+  if(req.method==='POST'&&['list-access','approve-access','reject-access'].includes(body?.action)){
    if(user.role!=='admin')return res.status(403).json({error:'Accès direction requis.'});
+   if(body.action==='list-access'){
+    const active=await sql`SELECT id FROM inventory_users`,pending=await sql`SELECT id,version,created FROM inventory_registrations ORDER BY created`;
+    return res.json({active:active.map(x=>x.id),pending});
+   }
    const target=users.find(u=>u.id===body.user&&u.role==='staff');
-   if(!target||typeof body.password!=='string'||body.password.length<12||body.password.length>128)return res.status(400).json({error:'Choisissez un collaborateur et un code de 12 à 128 caractères.'});
-   if(equal(hash(body.password,'check'),hash(process.env.APP_PASSWORD,'check')))throw Error('Le code direction doit rester distinct.');
-   const others=await sql`SELECT id,salt,hash FROM inventory_users`;
-   if(others.some(x=>x.id!==target.id&&equal(hash(body.password,x.salt),x.hash)))throw Error('Chaque collaborateur doit avoir un code différent.');
-   const salt=randomBytes(16).toString('hex'),digest=hash(body.password,salt),version=randomBytes(16).toString('hex');
-   await sql`INSERT INTO inventory_users(id,salt,hash,version) VALUES(${target.id},${salt},${digest},${version}) ON CONFLICT(id) DO UPDATE SET salt=EXCLUDED.salt,hash=EXCLUDED.hash,version=EXCLUDED.version`;
+   if(!target||typeof body.version!=='string')throw Error('Demande invalide.');
+   if(body.action==='approve-access'){
+    const added=await sql`INSERT INTO inventory_users(id,salt,hash,version) SELECT id,salt,hash,version FROM inventory_registrations WHERE id=${target.id} AND version=${body.version} ON CONFLICT DO NOTHING RETURNING id`;
+    if(!added.length)throw Error('Demande modifiée ou compte déjà actif. Actualisez la liste.');
+   }
+   await sql`DELETE FROM inventory_registrations WHERE id=${target.id} AND version=${body.version}`;
    return res.json({ok:true});
   }
   await sql`CREATE TABLE IF NOT EXISTS inventory_state (id integer PRIMARY KEY,revision integer NOT NULL DEFAULT 0,data jsonb NOT NULL)`;
