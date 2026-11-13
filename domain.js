@@ -47,7 +47,7 @@ export function apply(state,cmd){
   const reference=text(a.reference),day=date(a.date),quantity=num(a.quantity,0.001),price=num(a.price);
   if(s.invoices.some(x=>x.site===a.site&&x.product===p.id&&x.reference===reference))fail('Cette ligne de facture est déjà enregistrée.');
   if(order&&s.invoices.filter(x=>x.order===order.id).reduce((v,x)=>v+x.quantity,0)+quantity>order.quantity+1e-8)fail('Quantité facturée supérieure à la commande.');
-  s.invoices.push({id,site:a.site,product:p.id,order:order?.id||null,quantity,price,expected:order?.price??null,date:day,reference,actor,at:now});
+  s.invoices.push({id,site:a.site,product:p.id,order:order?.id||null,quantity,price,expected:order?.price??null,date:day,reference,note:a.note?text(a.note,4000):'',actor,at:now});
  }else if(cmd.type==='count'||cmd.type==='out'){
   site();const p=product(),q=num(a.quantity),day=date(a.date),current=stock(s,a.site,p.id);
   if(cmd.type==='out'&&q>current)fail('Sortie supérieure au stock disponible.');
