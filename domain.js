@@ -14,16 +14,27 @@ export function apply(state,cmd){
  if(s.events.some(e=>e.id===id))return s;
  const actor=text(a.actor||'Équipe',80), event={id,at:now,actor,type:cmd.type};
  const site=()=>sites[a.site]?a.site:fail('Établissement invalide.');
- const product=()=>s.products.find(p=>p.id===a.product)||fail('Produit introuvable.');
+ const product=()=>{const p=s.products.find(p=>p.id===a.product)||fail('Produit introuvable.');if(p.site&&p.site!==site())fail('Produit réservé à un autre établissement.');return p};
+ const photo=v=>{if(!v)return '';if(typeof v!=='string'||v.length>220000||!/^data:image\/jpeg;base64,[A-Za-z0-9+/]+=*$/.test(v))fail('Photo JPEG invalide ou trop volumineuse.');return v};
  const move=(p,q,kind,ref,day)=>s.movements.push({id,site:a.site,product:p,quantity:q,kind,ref,date:day,actor,at:now});
- if(cmd.type==='product'){
+ if(cmd.type==='order-batch'){
+  site();if(!Array.isArray(a.lines)||!a.lines.length||a.lines.length>30)fail('Ajoutez de 1 à 30 lignes.');
+  let next=s;
+  for(const [i,line] of a.lines.entries())next=apply(next,{id:id+'-'+i,type:'order',payload:{...a,...line,site:a.site,actor,batch:id}});
+  next.events.push(event);return next;
+ }else if(cmd.type==='supplier-contact'){
+  if(!suppliers.includes(a.supplier)||typeof a.email!=='string'||a.email.length>160||! /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(a.email))fail('Adresse e-mail invalide.');
+  s.contacts={...s.contacts,[a.supplier]:a.email.trim()};
+ }else if(cmd.type==='product-photo'){
+  const p=s.products.find(p=>p.id===a.product)||fail('Produit introuvable.');p.photo=photo(a.photo);
+ }else if(cmd.type==='product'){
   if(!suppliers.includes(a.supplier))fail('Fournisseur invalide.');
-  const p={id,name:text(a.name),supplier:a.supplier,reference:text(a.reference),unit:text(a.unit,60),category:text(a.category,60),minimum:num(a.minimum),factor:num(a.factor,0.001),baseUnit:text(a.baseUnit,20)};
-  if(s.products.some(x=>x.supplier===p.supplier&&x.reference.toLowerCase()===p.reference.toLowerCase()))fail('Cette référence existe déjà chez ce fournisseur.');
+  const p={id,site:a.site?site():null,photo:photo(a.photo),packaging:String(a.packaging||'').slice(0,120),name:text(a.name),supplier:a.supplier,reference:text(a.reference),unit:text(a.unit,60),category:text(a.category,60),minimum:num(a.minimum),factor:num(a.factor,0.001),baseUnit:text(a.baseUnit,20)};
+  if(s.products.some(x=>(x.site||null)===p.site&&x.supplier===p.supplier&&x.reference.toLowerCase()===p.reference.toLowerCase()))fail('Cette référence existe déjà chez ce fournisseur.');
   s.products.push(p);
  }else if(cmd.type==='order'){
   site();const p=product(); const quantity=num(a.quantity,0.001);const price=a.price===null?null:num(a.price);
-  s.orders.push({id,site:a.site,product:p.id,quantity,price,date:date(a.date),channel:text(a.channel,60),actor,note:String(a.note||'').slice(0,1000),at:now});
+  s.orders.push({id,batch:a.batch||null,site:a.site,product:p.id,quantity,price,date:date(a.date),channel:text(a.channel,60),actor,note:String(a.note||'').slice(0,1000),at:now});
  }else if(cmd.type==='receipt'){
   const o=s.orders.find(x=>x.id===a.order)||fail('Commande introuvable.');a.site=o.site;site();
   if(actor!=='Jean-Noel'&&!sites[o.site].people.includes(actor))fail('Réceptionnaire non autorisé pour cet établissement.');

@@ -43,3 +43,6 @@ Photo : caméra directe getUserMedia, sans import de fichier ; HTTPS et autorisa
 
 
 Version libre : la page principale ouvre un choix de profil sans mot de passe. État vide initial, sauvegarde dans localStorage jnmstock-libre, aucune synchronisation ni authentification des profils. Le mode libre ne lit ni ne modifie les stocks PostgreSQL. L’espace authentifié reste disponible via ?espace=partage. Effacer les données du navigateur efface les saisies locales ; exporter les tableaux utiles avant cela.
+
+
+Commandes : sélection du fournisseur puis du produit, jusqu’à 30 lignes enregistrées ensemble, unités carton/kg/unité et autres conditionnements. Le nouveau catalogue est rattaché à chaque établissement ; les anciennes références communes restent compatibles. Historique filtrable par établissement, fournisseur et recherche produit. Préparation d’un e-mail par fournisseur et établissement, destinataire Rabot andre.j@rabot.nc et adresse centrale factures.jnm@outlook.com pour les autres, modifiables dans les contacts. Le bouton ouvre la messagerie de l’appareil via mailto : envoi à confirmer dans cette messagerie, sans statut d’envoi automatique. Photos produit prises par caméra, compressées en JPEG et conservées avec le produit (localement en accès libre, dans PostgreSQL dans l’espace protégé). La caméra réelle doit être autorisée et testée sur le téléphone.

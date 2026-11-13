@@ -4,6 +4,7 @@ export function scope(state,user){
  if(user.role==='admin')return state;
  const result=structuredClone(state);
  for(const key of ['orders','receipts','invoices','movements'])result[key]=result[key].filter(x=>x.site===user.site);
+ result.products=result.products.filter(p=>!p.site||p.site===user.site);
  result.events=[];
  return result;
 }
@@ -11,7 +12,7 @@ export function authorize(state,command,user){
  if(!command||!command.payload)throw Error('Action invalide.');
  const cmd=structuredClone(command);
  if(user.role!=='admin'){
-  if(cmd.type==='product')throw Error('Seule la direction peut modifier le catalogue.');
+  if(['product','product-photo','supplier-contact'].includes(cmd.type))throw Error('Seule la direction peut modifier le catalogue.');
   const target=cmd.type==='receipt'?state.orders.find(o=>o.id===cmd.payload.order)?.site:cmd.payload.site;
   if(target!==user.site)throw Error('Accès refusé à cet établissement.');
  }

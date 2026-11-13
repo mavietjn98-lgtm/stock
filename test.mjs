@@ -22,3 +22,18 @@ test('Direction peut réceptionner et conserver la note dictée',()=>{
  const {s,order}=fixture();const next=apply(s,authorize(s,command('receipt',{order,quantity:1,date:'2026-11-14',reference:'TEST',note:'Carton abîmé'}),users[0]));
  assert.equal(next.receipts[0].actor,'Jean-Noel');assert.equal(next.receipts[0].note,'Carton abîmé');
 });
+test('Catalogue par établissement et commandes multi-lignes atomiques',()=>{
+ let {s,product}=fixture();s=apply(s,command('product',{site:'mojo',name:'Boisson',reference:'M1',supplier:'GBNC',unit:'carton',factor:24,baseUnit:'bouteille',minimum:2,category:'Boissons'}));const mojo=s.products.at(-1).id;
+ assert.throws(()=>apply(s,command('order',{site:'kookasia',product:mojo,quantity:1,price:null,date:'2026-11-14',channel:'Téléphone'})),/autre établissement/);
+ const batch=command('order-batch',{site:'mojo',date:'2026-11-14',channel:'E-mail',actor:'Andrea',lines:[{product:mojo,quantity:2,price:3000},{product,quantity:3.5,price:null}]});
+ const next=apply(s,batch);assert.equal(next.orders.length,s.orders.length+2);assert.equal(next.orders.at(-1).batch,batch.id);assert.equal(apply(next,batch).orders.length,next.orders.length);
+ assert.equal(scope(next,users.find(u=>u.id==='tara')).products.some(p=>p.id===mojo),false);
+ assert.throws(()=>apply(s,command('order-batch',{...batch.payload,lines:[batch.payload.lines[0],{product:'missing',quantity:1,price:null}]})),/introuvable/);assert.equal(s.orders.length,1);
+});
+test('Photos sûres et adresses fournisseurs validées',()=>{
+ const {s,product}=fixture();assert.throws(()=>apply(s,command('product-photo',{product,photo:'data:image/svg+xml,<svg/>'})),/Photo JPEG/);
+ const updated=apply(s,command('product-photo',{product,photo:'data:image/jpeg;base64,/9j/2Q=='}));assert.ok(updated.products[0].photo.startsWith('data:image/jpeg'));
+ assert.throws(()=>authorize(s,command('product-photo',{product}),users.find(u=>u.id==='tara')),/direction/);
+ assert.throws(()=>apply(s,command('supplier-contact',{supplier:'Serdis',email:'bad\nBcc: x'})),/Adresse/);
+ assert.equal(apply(s,command('supplier-contact',{supplier:'Serdis',email:'commande@example.com'})).contacts.Serdis,'commande@example.com');
+});
