@@ -1,0 +1,1 @@
+{"name":"inventaire-jnm","version":"1.0.0","private":true,"type":"module","scripts":{"test":"node --test test.mjs","dev":"node dev.mjs"},"dependencies":{"postgres":"^3.4.7"}}
