@@ -17,7 +17,7 @@ async function identity(req){
 export default async function handler(req,res){
  res.setHeader('Cache-Control','no-store');
  const configured=Boolean(process.env.DATABASE_URL&&process.env.APP_PASSWORD?.length>=16&&process.env.SESSION_SECRET?.length>=32);
- if(!configured){if(req.method==='GET'&&req.query?.status==='1')return res.json({configured:false,authenticated:false});return res.status(503).json({error:'Espace partagé non configuré.'})}
+ if(!configured){if(req.method==='GET'&&req.query?.status==='1')return res.json({configured:false,authenticated:false,setup:!process.env.DATABASE_URL?'DATABASE_URL manquante':!process.env.APP_PASSWORD?'APP_PASSWORD manquante':process.env.APP_PASSWORD.length<16?'APP_PASSWORD doit contenir au moins 16 caractères':!process.env.SESSION_SECRET?'SESSION_SECRET manquante':'SESSION_SECRET doit contenir au moins 32 caractères'});return res.status(503).json({error:'Espace partagé non configuré.'})}
  if(req.method==='POST'){try{if(new URL(req.headers.origin).host!==req.headers.host)throw Error()}catch{return res.status(403).json({error:'Origine refusée.'})}}
  let body=req.body;if(typeof body==='string'){try{body=JSON.parse(body)}catch{return res.status(400).json({error:'Données invalides.'})}}
  try{
