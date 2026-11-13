@@ -1,5 +1,5 @@
 export const sites = {kookasia:{name:'Kookasia',company:'BJNM',people:['Tara']},mojo:{name:'Mojo',company:'HJNM',people:['Andrea']},'oncle-ho':{name:'Oncle Hô',company:'EJNM',people:['Annie','Cathy','Michel','Noi']}};
-export const suppliers=['Serdis','Rabot','SIB','Sodevia','GBNC'];
+export const suppliers=['Serdis','Rabot','SIB','Sodevia','GBNC','Ridolfi','Bargibant'];
 export const empty=()=>({products:[],orders:[],receipts:[],invoices:[],movements:[],events:[]});
 const fail=m=>{throw new Error(m)};
 const text=(v,n=160)=>typeof v==='string'&&v.trim()&&v.length<=n?v.trim():fail('Champ texte manquant ou trop long.');
