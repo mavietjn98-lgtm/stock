@@ -4,7 +4,7 @@ export const empty=()=>({products:[],orders:[],receipts:[],invoices:[],movements
 const fail=m=>{throw new Error(m)};
 const text=(v,n=160)=>typeof v==='string'&&v.trim()&&v.length<=n?v.trim():fail('Champ texte manquant ou trop long.');
 const num=(v,min=0)=>typeof v==='number'&&Number.isFinite(v)&&v>=min?v:fail('Nombre invalide.');
-const date=v=>/^\d{4}-\d{2}-\d{2}$/.test(v)&&!isNaN(Date.parse(v))?v:fail('Date invalide.');
+const date=v=>/^\d{4}-\d{2}-\d{2}$/.test(v)&&!isNaN(Date.parse(v))&&new Date(v).toISOString().slice(0,10)===v?v:fail('Date invalide.');
 export function stock(s,site,product){return s.movements.filter(x=>x.site===site&&x.product===product).reduce((n,x)=>n+x.quantity,0)}
 export function received(s,id){return s.receipts.filter(x=>x.order===id).reduce((n,x)=>n+x.quantity,0)}
 export function discrepancy(expected,actual){return expected==null?null:Math.round((actual-expected)*100)/100}
@@ -17,7 +17,12 @@ export function apply(state,cmd){
  const product=()=>{const p=s.products.find(p=>p.id===a.product)||fail('Produit introuvable.');if(p.site&&p.site!==site())fail('Produit réservé à un autre établissement.');return p};
  const photo=v=>{if(!v)return '';if(typeof v!=='string'||v.length>220000||!/^data:image\/jpeg;base64,[A-Za-z0-9+/]+=*$/.test(v))fail('Photo JPEG invalide ou trop volumineuse.');return v};
  const move=(p,q,kind,ref,day)=>s.movements.push({id,site:a.site,product:p,quantity:q,kind,ref,date:day,actor,at:now});
- if(cmd.type==='order-batch'){
+ if(cmd.type==='invoice-batch'){
+  site();if(!Array.isArray(a.lines)||!a.lines.length||a.lines.length>100)fail('Ajoutez de 1 à 100 lignes de facture.');
+  let next=s;
+  for(const [i,line] of a.lines.entries())next=apply(next,{id:id+'-'+i,type:'invoice',payload:{...line,site:a.site,actor,reference:a.reference,date:a.date,note:line.source||a.note||'',order:null}});
+  next.events.push(event);return next;
+ }else if(cmd.type==='order-batch'){
   site();if(!Array.isArray(a.lines)||!a.lines.length||a.lines.length>30)fail('Ajoutez de 1 à 30 lignes.');
   let next=s;
   for(const [i,line] of a.lines.entries())next=apply(next,{id:id+'-'+i,type:'order',payload:{...a,...line,site:a.site,actor,batch:id}});

@@ -69,3 +69,46 @@ test('Photo produit : référence connue, litres, conditionnement et absence de 
  assert.deepEqual(productFromText(''),{});
  assert.equal(productFromText('Réf. C651601',[],[]).supplier,undefined);
 });
+import {invoiceFromText} from './invoice-photo.js';
+test('Photo facture : produits, quantités, HT et lignes inconnues à vérifier',()=>{
+ const products=[{id:'prod-1',name:'Jus de citron',reference:'C651601',supplier:'Serdis',site:'mojo'}];
+ const parsed=invoiceFromText('SERDIS\nFacture N° F2026-123\n14/11/2026\nRéférence Désignation Quantité PU HT Total HT\nC651601 Jus de citron 2 500 1000\nZZ999 Produit inconnu 3 100 300\nTotal HT 1300\nTGC 78',products,['Serdis']);
+ assert.equal(parsed.reference,'F2026-123');assert.equal(parsed.date,'2026-11-14');assert.equal(parsed.lines.length,2);assert.equal(parsed.lines[0].product,'prod-1');assert.equal(parsed.lines[0].quantity,2);assert.equal(parsed.lines[0].price,500);assert.equal(parsed.lines[1].product,'');
+ assert.equal(invoiceFromText('PU TTC\nC651601 Jus de citron 2 530 1060',products).lines[0].price,null);
+ assert.equal(invoiceFromText('PU HT\nC651601 Jus de citron 2 500 800',products).lines[0].price,null);
+ assert.equal(invoiceFromText('PU HT\nC651601 Jus de citron 2 500 1000',[]).lines[0].product,'');
+});
+test('Import facture atomique : aucun ordre ou stock, doublons refusés, cloisonnement',()=>{
+ const s=withCatalogue(empty()),products=s.products.filter(p=>p.site==='mojo').slice(0,2);
+ const payload={site:'mojo',reference:'TEST-IMPORT',date:'2026-11-14',lines:products.map(p=>({product:p.id,quantity:2,price:500,order:'ignored'}))};
+ const cmd=command('invoice-batch',payload),next=apply(s,cmd);
+ assert.equal(next.invoices.length,2);assert.ok(next.invoices.every(x=>x.order===null&&x.expected===null));assert.equal(next.orders.length,0);assert.equal(next.movements.length,0);assert.deepEqual(apply(next,cmd),next);
+ assert.throws(()=>apply(next,command('invoice-batch',payload)),/déjà/);
+ assert.throws(()=>apply(s,command('invoice-batch',{...payload,lines:[payload.lines[0],{...payload.lines[1],price:-1}]})),/Nombre/);assert.equal(s.invoices.length,0);
+ assert.throws(()=>apply(s,command('invoice-batch',{...payload,site:'kookasia'})),/autre établissement/);
+ assert.throws(()=>authorize(s,cmd,users.find(u=>u.id==='tara')),/Accès refusé/);
+});
+import {readProductPhoto} from './product-photo.js';
+test('Photo : format invalide, image illisible, OCR en erreur, annulation et reprise',async()=>{
+ const originals={Image:globalThis.Image,document:globalThis.document,window:globalThis.window};let badImage=false,stops=0,ocrError=false,slow=false;
+ globalThis.Image=class{naturalWidth=1200;naturalHeight=800;set src(value){if(value)queueMicrotask(()=>badImage?this.onerror():this.onload())}};
+ globalThis.document={createElement:()=>({getContext:()=>({drawImage(){}}),toDataURL:()=> 'data:image/jpeg;base64,AAAA'})};
+ globalThis.window={Tesseract:{createWorker:async()=>({recognize:async()=>{if(ocrError)throw Error('OCR unavailable');if(slow)return new Promise(()=>{});return {data:{text:'Produit test'}}},terminate:async()=>{stops++}})}};
+ const photo=new Blob(['fake image'],{type:'image/jpeg'});
+ try{
+  await assert.rejects(readProductPhoto(new Blob(['txt'],{type:'text/plain'})),/pas une photo/);
+  badImage=true;await assert.rejects(readProductPhoto(photo),/illisible/);badImage=false;
+  assert.equal((await readProductPhoto(photo)).text,'Produit test');assert.equal(stops,1);
+  ocrError=true;assert.ok((await readProductPhoto(photo)).error);assert.equal(stops,2);ocrError=false;
+  const controller=new AbortController();slow=true;const pending=readProductPhoto(photo,{signal:controller.signal});setTimeout(()=>controller.abort(),10);await assert.rejects(pending,{name:'AbortError'});assert.equal(stops,3);slow=false;
+  assert.equal((await readProductPhoto(photo)).text,'Produit test');
+  const prior=stops;assert.ok((await readProductPhoto(photo,{recognize:false})).photo);assert.equal(stops,prior);
+ }finally{for(const [k,v]of Object.entries(originals)){if(v===undefined)delete globalThis[k];else globalThis[k]=v}}
+});
+test('Import : références numériques courtes non confondues avec quantités et dates invalides refusées',()=>{
+ const p={id:'ridolfi-38',name:'Curaçao',supplier:'Ridolfi',reference:'38'};
+ assert.equal(invoiceFromText('PU HT\nAUTRE Produit inconnu 38 100 3800',[p]).lines[0].product,'');
+ assert.equal(invoiceFromText('PU HT\n38 Curacao 2 100 200',[p]).lines[0].product,p.id);
+ const s=withCatalogue(empty()),product=s.products[0];
+ assert.throws(()=>apply(s,command('invoice',{site:product.site,product:product.id,reference:'DATE-TEST',date:'2026-02-31',quantity:1,price:1})),/Date invalide/);
+});

@@ -16,13 +16,18 @@ export function productFromText(text,products=[],suppliers=[]){
  if(unit){result.unit=/^(l|litre)/i.test(unit[1])?'L':normalize(unit[1])==='unite'?'unité':unit[1].toLowerCase();if(['L','kg'].includes(result.unit)){result.baseUnit=result.unit;result.factor=1}}
  return result;
 }
-export async function readProductPhoto(file){
+let ocrLoader;
+function bounded(promise,ms,signal){return new Promise((resolve,reject)=>{const end=(fn,value)=>{clearTimeout(timer);signal?.removeEventListener('abort',abort);fn(value)},abort=()=>end(reject,new DOMException('Lecture annulée.','AbortError')),timer=setTimeout(()=>end(reject,Error('Lecture trop longue. Réessayez avec une photo plus nette.')),ms);if(signal?.aborted){abort();return}signal?.addEventListener('abort',abort,{once:true});Promise.resolve(promise).then(v=>end(resolve,v),e=>end(reject,e))})}
+function loadOcr(){if(window.Tesseract)return Promise.resolve();if(!ocrLoader)ocrLoader=new Promise((resolve,reject)=>{const script=document.createElement('script'),timer=setTimeout(()=>{script.remove();reject(Error('Service de lecture indisponible.'))},20000);script.src='https://cdn.jsdelivr.net/npm/tesseract.js@6.0.1/dist/tesseract.min.js';script.onload=()=>{clearTimeout(timer);resolve()};script.onerror=()=>{clearTimeout(timer);script.remove();reject(Error('Service de lecture indisponible.'))};document.head.append(script)}).catch(e=>{ocrLoader=null;throw e});return ocrLoader}
+export async function readProductPhoto(file,{recognize=true,signal}={}){
+ if(!file||!file.size||file.size>25*1024*1024)throw Error('Choisissez une photo de moins de 25 Mo.');
+ if(file.type&&!file.type.startsWith('image/'))throw Error('Ce fichier n’est pas une photo.');
  const url=URL.createObjectURL(file),img=new Image();
- try{await new Promise((resolve,reject)=>{img.onload=resolve;img.onerror=()=>reject(Error('Photo illisible. Reprenez une photo.'));img.src=url});
+ try{await bounded(new Promise((resolve,reject)=>{img.onload=resolve;img.onerror=()=>reject(Error('Photo illisible. Reprenez une photo au format JPEG.'));img.src=url}),20000,signal);
  const canvas=document.createElement('canvas'),scale=Math.min(1,2000/Math.max(img.naturalWidth,img.naturalHeight));canvas.width=Math.round(img.naturalWidth*scale);canvas.height=Math.round(img.naturalHeight*scale);canvas.getContext('2d').drawImage(img,0,0,canvas.width,canvas.height);
  const preview=document.createElement('canvas'),ratio=Math.min(1,640/Math.max(canvas.width,canvas.height));preview.width=Math.round(canvas.width*ratio);preview.height=Math.round(canvas.height*ratio);preview.getContext('2d').drawImage(canvas,0,0,preview.width,preview.height);
  let photo=preview.toDataURL('image/jpeg',0.65);if(photo.length>220000)photo=preview.toDataURL('image/jpeg',0.35);if(photo.length>220000)throw Error('Photo trop volumineuse. Reprenez la photo.');
- let worker;
- try{if(!window.Tesseract)await new Promise((resolve,reject)=>{const script=document.createElement('script');script.src='https://cdn.jsdelivr.net/npm/tesseract.js@6.0.1/dist/tesseract.min.js';script.onload=resolve;script.onerror=reject;document.head.append(script)});worker=await window.Tesseract.createWorker('fra');const result=await worker.recognize(canvas);return {photo,text:result.data.text||''};}catch{return {photo,text:'',error:'Lecture automatique indisponible. La photo est conservée ; complétez les champs manuellement.'}}finally{await worker?.terminate()}
- }finally{URL.revokeObjectURL(url)}
+ if(!recognize)return {photo,text:''};let worker,finished=false;
+ try{await bounded(loadOcr(),25000,signal);const boot=window.Tesseract.createWorker('fra');boot.then(w=>{if(finished)w.terminate()}).catch(()=>{});worker=await bounded(boot,45000,signal);const result=await bounded(worker.recognize(canvas),60000,signal);return {photo,text:result.data.text||''};}catch(error){if(error.name==='AbortError')throw error;return {photo,text:'',error:'Lecture automatique indisponible. Réessayez ou complétez les champs manuellement.'}}finally{finished=true;await worker?.terminate()}
+ }finally{img.src='';URL.revokeObjectURL(url)}
 }
