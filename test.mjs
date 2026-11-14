@@ -37,3 +37,24 @@ test('Photos sûres et adresses fournisseurs validées',()=>{
  assert.throws(()=>apply(s,command('supplier-contact',{supplier:'Serdis',email:'bad\nBcc: x'})),/Adresse/);
  assert.equal(apply(s,command('supplier-contact',{supplier:'Serdis',email:'commande@example.com'})).contacts.Serdis,'commande@example.com');
 });
+import {catalogue,withCatalogue} from './catalogue.js';
+test('Catalogue : ajout idempotent, conservation des saisies et cloisonnement',()=>{
+ const source=empty(), first=withCatalogue(source);
+ assert.equal(source.products.length,0);
+ assert.equal(first.products.length,426);
+ assert.deepEqual(withCatalogue(first),first);
+ const saved={...first.products[0],id:'existing-product',name:'Nom modifié',photo:'photo conservée'};
+ const custom={...saved,id:'custom-product',reference:'PERSONNEL'};
+ const merged=withCatalogue({...empty(),products:[saved,custom]});
+ assert.equal(merged.products.length,427);
+ assert.deepEqual(merged.products[0],saved);
+ assert.deepEqual(merged.products[1],custom);
+ assert.equal(merged.orders.length+merged.invoices.length+merged.movements.length,0);
+ for(const [site,n] of [['kookasia',224],['mojo',34],['oncle-ho',168]])assert.equal(first.products.filter(p=>p.site===site).length,n);
+ const p=first.products.find(p=>p.site==='mojo');
+ const payload={site:'mojo',product:p.id,quantity:2,price:null,date:'2026-11-14',channel:'Téléphone',actor:'Andrea'};
+ assert.equal(apply(first,command('order',payload)).orders[0].product,p.id);
+ assert.throws(()=>apply(first,command('order',{...payload,site:'kookasia'})),/autre établissement/);
+ assert.equal(scope(first,users.find(u=>u.id==='andrea')).products.length,34);
+ assert.ok(catalogue.every(p=>!('historique' in p)&&!('source' in p)&&!('price' in p)));
+});
