@@ -58,3 +58,14 @@ test('Catalogue : ajout idempotent, conservation des saisies et cloisonnement',(
  assert.equal(scope(first,users.find(u=>u.id==='andrea')).products.length,34);
  assert.ok(catalogue.every(p=>!('historique' in p)&&!('source' in p)&&!('price' in p)));
 });
+import {productFromText} from './product-photo.js';
+test('Photo produit : référence connue, litres, conditionnement et absence de données',()=>{
+ const p={site:'mojo',name:'Jus de citron',reference:'C651601',supplier:'Serdis',category:'Épicerie',unit:'bouteille',packaging:'1 L',factor:1,baseUnit:'L'};
+ assert.deepEqual(productFromText('SERDIS\nRéf. C651601',[p],['Serdis']),{supplier:p.supplier,reference:p.reference,name:p.name,category:p.category,unit:p.unit,packaging:p.packaging,factor:p.factor,baseUnit:p.baseUnit});
+ const parsed=productFromText('Produit : Jus de mangue\nRéférence : MANG-50\n6 x 50 cl',[],[]);
+ assert.equal(parsed.name,'Jus de mangue');assert.equal(parsed.reference,'MANG-50');assert.equal(parsed.unit,'carton');assert.equal(parsed.factor,3);assert.equal(parsed.baseUnit,'L');
+ assert.equal(productFromText('Produit : Huile\nUnité de commande : litres').unit,'L');
+ assert.equal(productFromText('Riz\n500 g').factor,0.5);
+ assert.deepEqual(productFromText(''),{});
+ assert.equal(productFromText('Réf. C651601',[],[]).supplier,undefined);
+});
