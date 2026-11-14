@@ -1,5 +1,6 @@
 import postgres from 'postgres';
 import {createHmac,timingSafeEqual,randomBytes,scryptSync} from 'node:crypto';
+import {withCatalogue} from '../catalogue.js';
 import {empty,apply} from '../domain.js';
 import {users,scope,authorize} from '../access.js';
 let sql;
@@ -76,6 +77,7 @@ export default async function handler(req,res){
   await sql`CREATE TABLE IF NOT EXISTS inventory_state (id integer PRIMARY KEY,revision integer NOT NULL DEFAULT 0,data jsonb NOT NULL)`;
   await sql`INSERT INTO inventory_state(id,data) VALUES(1,${sql.json(empty())}) ON CONFLICT DO NOTHING`;
   const [row]=await sql`SELECT data,revision FROM inventory_state WHERE id=1`;
+  row.data=withCatalogue(row.data);
   const response=r=>({data:scope(r.data,user),revision:r.revision,user});
   if(req.method==='GET')return res.json(response(row));
   if(req.method!=='POST')return res.status(405).json({error:'Méthode refusée.'});
